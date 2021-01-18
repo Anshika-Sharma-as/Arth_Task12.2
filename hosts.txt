@@ -1,0 +1,14 @@
+# [haproxy]
+[haproxy]
+13.126.115.209 ansible_user=ec2-user
+# [haproxy]
+# [myweb]
+[myweb]
+13.233.184.140 ansible_user=ec2-user
+# [myweb]
+[myweb]
+13.233.8.154 ansible_user=ec2-user
+# [myweb]
+
+
+#this will be created after running the playbook!!!!
