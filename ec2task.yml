@@ -1,0 +1,163 @@
+- hosts: 127.0.0.1
+  vars_files:
+          - secret.yml
+  tasks:
+  - name: "Downloading boto3"
+    pip:
+            name: boto3
+  - name: "Launching instances over ec2 for HAProxy"
+    ec2_instance:
+            region: "ap-south-1"
+            name: "HAProxy system"
+            key_name: hadoopKey
+            vpc_subnet_id: "subnet-c2f4ceaa"
+            instance_type: "t2.micro"
+            security_group: default
+            state: present
+            network:
+                    assign_public_ip: true
+            image_id: "ami-0a9d27a9f4f5c0efc"
+            aws_access_key: "{{ access_key }}"
+            aws_secret_key: "{{ secret_key }}"
+            tags:
+                    Name: "HAProxyServer"
+    register: haproxy
+
+  - name: "Launching instances over ec2 for backend server"
+    ec2_instance:
+            region: "ap-south-1"
+            name: "Endpoint_01"
+            key_name: hadoopKey
+            vpc_subnet_id: "subnet-c2f4ceaa"
+            instance_type: "t2.micro"
+            security_group: default
+            state: present
+            network:
+                    assign_public_ip: true
+            image_id: "ami-0a9d27a9f4f5c0efc"
+            aws_access_key: "{{ access_key }}"
+            aws_secret_key: "{{ secret_key }}"
+            tags:
+                    Name: "EndPoint"
+    register: e1
+
+  - name: "Launching instances over ec2 for backend server"
+    ec2_instance:
+            region: "ap-south-1"
+            name: "Endpoint_02"
+            key_name: hadoopKey
+            vpc_subnet_id: "subnet-c2f4ceaa"
+            instance_type: "t2.micro"
+            security_group: default
+            state: present
+            network:
+                    assign_public_ip: true
+            image_id: "ami-0a9d27a9f4f5c0efc"
+            aws_access_key: "{{ access_key }}"
+            aws_secret_key: "{{ secret_key }}"
+            tags:
+                    Name: "EndPoint"
+    register: e2
+
+  - command: "rm -f /root/hosts.txt"
+  - command: "touch  /root/hosts.txt"
+
+  - name: "set haproxy server ip"
+    set_fact:
+            ip_haproxy: "{{ haproxy.instances[0]['network_interfaces'][0]['association']['public_ip'] }}"
+  - debug:
+          var: ip_haproxy
+
+  - name: "set EndPoint01  ip"
+    set_fact:
+            ip_e1: "{{ e1.instances[0]['network_interfaces'][0]['association']['public_ip'] }}"
+  - debug:
+          var: ip_e1
+
+  - name: "set EndPoint02  ip"
+    set_fact:
+            ip_e2: "{{ e2.instances[0]['network_interfaces'][0]['association']['public_ip'] }}"
+  - debug:
+          var: ip_e2
+
+  - name: "Updating the inventory!!"
+    blockinfile:
+            path: "/root/hosts.txt"
+            block: |
+                    {{ item.grp  }}
+                    {{ item.ip  }} ansible_user=ec2-user
+            marker: "# {{ item.grp }}"
+    with_items:
+            - {grp: "[haproxy]", ip: "{{ ip_haproxy }}" }
+            - {grp: "[myweb]",  ip: "{{ ip_e1 }}" }
+            - {grp: "[myweb]", ip: "{{ ip_e2 }}" }
+  - name: "Refreshing the inventory, to see the changes in it !!!"
+    meta: refresh_inventory
+
+- hosts: haproxy
+  tasks:
+  - debug:
+          var: groups['haproxy']
+
+- hosts: myweb
+  tasks:
+  - debug:
+          var: groups['myweb']
+
+
+- hosts: myweb, haproxy
+  vars_files:
+  - variable.yml
+  tasks:
+  - name: "Disabling SELINUX !!!"
+    selinux:
+      policy: targeted
+      state: permissive
+
+- hosts: myweb
+  vars_files:
+  - variable.yml
+  tasks:
+  - name: "installing Httpd package"
+    package:
+            name: "httpd"
+            state: present
+  - name: "installing PHP package"
+    package:
+            name: "php"
+            state: present
+  - name: "Copying web server code!!!!"
+    copy:
+            src: "index.php"
+            dest: "/var/www/html/"
+            mode: '0644'
+  - name: "Starting the service"
+    service:
+            name: "httpd"
+            state: restarted
+            enabled: yes
+
+- hosts: haproxy
+  vars_files:
+  - variable.yml
+  vars:
+       ip_list: "{{ groups['myweb']  }}"
+  tasks:
+  - debug:
+            msg: "{{ groups['myweb']  }}"
+  - name: "Installing the proxy server"
+    package:
+            name: 'haproxy'
+            state: present
+  - name: 'Adding conf file'
+    template:
+            src: 'haproxy.cfg.j2'
+            dest: '/etc/haproxy/haproxy.cfg'
+    notify:
+    - 'starting the service'
+  handlers:
+    - name: "starting the service"
+      service:
+            name: 'haproxy'
+            state: restarted
+            enabled: yes
